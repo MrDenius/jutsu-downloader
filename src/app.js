@@ -1,9 +1,14 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
+const jutsuParser = require("./jutsuParser")();
 
 let win;
 
 const Main = () => {
-	CreateWindow();
+	console.log("START");
+	//CreateWindow();
+	jutsuParser
+		.Parse("https://jut.su/darling-in-the-franxx/")
+		.then(console.log);
 };
 
 const CreateWindow = () => {
