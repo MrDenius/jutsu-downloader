@@ -15,7 +15,8 @@
 			},
 			"program": "${workspaceRoot}/src/app.js",
 			"protocol": "inspector",
-			"outputCapture": "std"
+			"outputCapture": "std",
+			"runtimeArgs": ["-debug"]
 		},
 		{
 			"name": "Debug Renderer Process",

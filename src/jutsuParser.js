@@ -15,59 +15,72 @@ module.exports = () => {
 					return getEpisode[season][episode];
 				};
 
-				let i = 0;
-
 				document
 					.querySelectorAll("a.short-btn.video.the_hildi")
 					.forEach((el) => {
-						i++;
-						console.log(i);
-						const episode = el.href
+						let episode = el.href
 							.replace(/^\/|(.html)|(season-)|(episode-)/g, "")
 							.split("/");
 
-						getEpisode[(episode[1], episode[2])] = {
+						if (episode.length === 2)
+							episode = [episode[0], 1, episode[1]];
+
+						console.log(episode);
+						if (!getEpisode[episode[1]])
+							getEpisode[episode[1]] = {};
+						getEpisode[episode[1]][episode[2]] = {
 							name: episode[0],
 							season: episode[1],
 							episode: episode[2],
-							url: {},
+							getUrl: () => {
+								return new Promise((resolve, reject) => {
+									if (getEpisode.url) {
+										resolve(getEpisode.url);
+										return;
+									}
+									getEpisode.url = {};
+									axios
+										.get(`https://jut.su${el.href}`)
+										.then((res) => {
+											const docEpisode = new JSDOM(
+												res.data
+											).window.document;
+											const datasets = docEpisode.querySelector(
+												"span#wap_player_1"
+											).dataset;
+											const qualities = [
+												160,
+												240,
+												360,
+												480,
+												720,
+												1080,
+												1440,
+												2480,
+											];
+
+											qualities.forEach((quality) => {
+												if (
+													datasets[
+														`player-${quality}`
+													]
+												)
+													getEpisode.url[
+														`${quality}`
+													] =
+														datasets[
+															`player-${quality}`
+														];
+											});
+											resolve(getEpisode.url);
+											return;
+										});
+								});
+							},
 						};
-						axios.get(`https://jut.su${el.href}`).then((res) => {
-							const docEpisode = new JSDOM(res.data).window
-								.document;
-							const datasets = docEpisode.querySelector(
-								"span#wap_player_1"
-							).dataset;
-							const qualities = [
-								160,
-								240,
-								360,
-								480,
-								720,
-								1080,
-								1440,
-								2480,
-							];
-
-							qualities.forEach((quality) => {
-								console.log(getEpisode.url);
-								if (datasets[`player-${quality}`])
-									getEpisode.url[`${quality}`] =
-										datasets[`player-${quality}`];
-							});
-							i--;
-							console.log(i);
-						});
 					});
-				const WaitEnd = () => {
-					if (i === 0) {
-						resolve(getEpisode);
-						return;
-					}
-					setTimeout(WaitEnd, 100);
-				};
-
-				WaitEnd();
+				resolve(getEpisode);
+				return;
 			});
 		});
 	};
