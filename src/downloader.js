@@ -92,6 +92,7 @@ module.exports = () => {
 
 			res.data.on("error", (err) => {
 				console.error(err);
+				events.emit("end", err);
 			});
 
 			cli.ok("Download started!");

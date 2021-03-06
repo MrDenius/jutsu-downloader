@@ -1,3 +1,4 @@
+const cli = require("cli");
 const { resolve } = require("path");
 
 module.exports = () => {
@@ -12,7 +13,10 @@ module.exports = () => {
 				const document = new JSDOM(res.data).window.document;
 
 				const getEpisode = (season, episode) => {
-					return getEpisode[season][episode];
+					cli.debug(`Episode loaded: [${season}, ${episode}]`);
+					let ret;
+					if (getEpisode[season]) ret = getEpisode[season][episode];
+					return ret;
 				};
 
 				document
@@ -28,17 +32,20 @@ module.exports = () => {
 						console.log(episode);
 						if (!getEpisode[episode[1]])
 							getEpisode[episode[1]] = {};
+
+						episode[1] = Number(episode[1]);
+						episode[2] = Number(episode[2]);
 						getEpisode[episode[1]][episode[2]] = {
 							name: episode[0],
 							season: episode[1],
 							episode: episode[2],
 							getUrl: () => {
 								return new Promise((resolve, reject) => {
-									if (getEpisode.url) {
-										resolve(getEpisode.url);
+									if (episode.url) {
+										resolve(episode.url);
 										return;
 									}
-									getEpisode.url = {};
+									episode.url = {};
 									axios
 										.get(`https://jut.su${el.href}`)
 										.then((res) => {
@@ -65,14 +72,12 @@ module.exports = () => {
 														`player-${quality}`
 													]
 												)
-													getEpisode.url[
-														`${quality}`
-													] =
+													episode.url[`${quality}`] =
 														datasets[
 															`player-${quality}`
 														];
 											});
-											resolve(getEpisode.url);
+											resolve(episode.url);
 											return;
 										});
 								});

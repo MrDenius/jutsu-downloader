@@ -1,13 +1,69 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
 const jutsuParser = require("./jutsuParser")();
 const downloader = require("./downloader")();
+const downloadManager = require("./downloadManager")();
+const UI = require("./consoleUI")();
 const cli = require("cli");
-
-let win;
 
 const Main = () => {
 	console.log("START");
-	//CreateWindow();
+	//DownloadManagerTest();
+	UITest();
+};
+
+const UITest = () => {
+	UI.StartDrawLoop();
+};
+
+const DownloadManagerTest = () => {
+	jutsuParser.Parse("https://jut.su/grand-blue/").then((episodes) => {
+		const blackList = [
+			"1-1",
+			"1-3",
+			"1-4",
+			"1-5",
+			"1-6",
+			"1-7",
+			"1-8",
+			"1-9",
+			"1-10",
+			"1-11",
+			//"1-12",
+		];
+
+		const GetSettings = async (blackList, quality) => {
+			const dowSettings = [];
+			let s = 1;
+			let e = 1;
+
+			while (true) {
+				e = 1;
+				let content = episodes(s, e);
+				if (!content) break;
+
+				while (content) {
+					if (!blackList.includes(`${s}-${e}`))
+						dowSettings.push([
+							content,
+							(await content.getUrl())[quality],
+						]);
+
+					e++;
+					content = episodes(s, e);
+				}
+				s++;
+			}
+			return dowSettings;
+		};
+
+		GetSettings(blackList, 1080).then((settings) => {
+			console.log(settings);
+			downloadManager.AddDownload(settings);
+			downloadManager.StartDownload();
+		});
+	});
+};
+
+const DownloadTest = () => {
 	jutsuParser.Parse("https://jut.su/grand-blue/").then((res) => {
 		cli.ok("Parse completed.");
 		res(1, 1)
@@ -23,19 +79,4 @@ const Main = () => {
 	});
 };
 
-const CreateWindow = () => {
-	win = new BrowserWindow({
-		width: 1000,
-		height: 600,
-		webPreferences: {
-			nodeIntegration: true,
-			devTools: true,
-		},
-	});
-
-	win.webContents.on("will-navigate", (event, url) => {
-		console.log(url);
-	});
-};
-
-app.whenReady().then(Main);
+Main();
