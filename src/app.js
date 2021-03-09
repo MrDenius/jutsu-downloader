@@ -1,6 +1,6 @@
 const jutsuParser = require("./jutsuParser")();
 const downloader = require("./downloader")();
-const downloadManager = require("./downloadManager")();
+//const downloadManager = require("./downloadManager")();
 const UI = require("./consoleUI")();
 const cli = require("cli");
 

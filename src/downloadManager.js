@@ -1,18 +1,38 @@
+const cli = require("cli");
+const jutsuParser = require("./jutsuParser")();
+
 const downloader = require("./downloader")();
+
+const log = require("./loger")();
 
 module.exports = (settings) => {
 	const fs = require("fs");
+	const EventEmitter = require("events").EventEmitter;
 
 	const OPTIONS_PATH = "./options.json";
 
+	const events = new EventEmitter();
+
+	let isActive = false;
 	let options = { queue: [] };
 	const LoadOptions = () => {
 		const SaveOptions = () => {
 			fs.writeFileSync(OPTIONS_PATH, JSON.stringify(options));
 		};
 
-		if (fs.existsSync(OPTIONS_PATH))
+		if (fs.existsSync(OPTIONS_PATH)) {
 			options = JSON.parse(fs.readFileSync(OPTIONS_PATH));
+			options.queue.forEach((queue) => {
+				queue.episodes.forEach((episode) => {
+					episode.getUrl = () =>
+						jutsuParser.GetUrl(
+							episode.name,
+							episode.season,
+							episode.episode
+						);
+				});
+			});
+		}
 		const _options = options;
 		options = new Proxy(
 			{},
@@ -37,32 +57,100 @@ module.exports = (settings) => {
 	};
 	const UpdateSettings = () => {};
 
-	const IsDownloaded = () => {
-		let isDownloaded = false;
-		if (options.queue && options.queue.length) isDownloaded = true;
+	const GetDownloadInfo = () => {
+		const info = {
+			isActive: isActive,
+			queue: options.queue,
+			activeDownload: options.queue[0] || undefined,
+		};
 
-		isDownloaded.queue = options.queue;
-
-		return isDownloaded;
+		return info;
 	};
 
 	const StartDownload = () => {
-		let qi = 0;
-		const StartQueue = () => {
-			const queue = options.queue[qi];
+		log(`START download: ${isActive}`);
+		if (isActive) return;
+		isActive = true;
 
-			let ei = 0;
-
-			const StartEpisode = () => {
-				const episode = queue.episode[ei];
-				const dowInfo = downloader.Download(
-					episode[1],
-					`./${queue.name}/${episode[0].season}-${episode[0].episode}`
+		const RemoveFromQueue = (episode) => {
+			options.queue.forEach((q) => {
+				q.episodes = q.episodes.filter(
+					(e) =>
+						!(
+							e.name === episode.name &&
+							e.season === episode.season &&
+							e.episode === episode.episode
+						)
 				);
-
-				ei++;
-			};
+			});
 		};
+
+		const AddEndHook = (dowInfo) => {
+			const dowInfoId = AddEndHook._dii ? AddEndHook._dii + 1 : 0;
+			dowInfo.on("end", () => {
+				if (dowInfoId === AddEndHook._dii) isActive = false;
+				RemoveFromQueue(dowInfo.episode);
+				events.emit("queue-update");
+			});
+
+			AddEndHook._dii = dowInfoId;
+		};
+
+		const AddToQueue = (dowInfo) => {
+			const queue = AddToQueue._queue || [];
+
+			if (queue.length === 0) {
+				cli.debug(
+					`Start download ${dowInfo.episode.season}-${dowInfo.episode.episode}`
+				);
+				dowInfo.StartDownload();
+			} else {
+				queue[queue.length - 1].on("end", () => {
+					cli.debug(
+						`Start download ${dowInfo.season}-${dowInfo.episode}`
+					);
+					dowInfo.StartDownload();
+				});
+			}
+			queue.push(dowInfo);
+
+			AddToQueue._queue = queue;
+		};
+
+		const AddProgressHandler = (dowInfo) => {
+			dowInfo.on("progress", (progress, speed) => {
+				events.emit("progress", dowInfo.episode, progress, speed);
+			});
+		};
+
+		const Start = async () => {
+			let qi = 0;
+			let queue = options.queue[qi];
+			while (queue) {
+				let ei = 0;
+
+				let episode = queue.episodes[ei];
+				while (episode) {
+					if (!fs.existsSync(`./${episode.name}/`))
+						fs.mkdirSync(`./${episode.name}`);
+					const dowInfo = downloader.Download(
+						(await episode.getUrl())[episode.quality],
+						`./${episode.name}/${episode.season}-${episode.episode}.mp4`
+					);
+					dowInfo.episode = episode;
+					dowInfo.url = (await episode.getUrl())[episode.quality];
+
+					AddEndHook(dowInfo);
+					AddToQueue(dowInfo);
+					AddProgressHandler(dowInfo);
+					ei++;
+					episode = queue.episodes[ei];
+				}
+				qi++;
+				queue = options.queue[qi];
+			}
+		};
+		Start();
 	};
 
 	/**
@@ -76,14 +164,20 @@ module.exports = (settings) => {
 		};
 
 		options.queue.push(downloadInfo);
+
+		if (!isActive) StartDownload();
 	};
 
 	const api = UpdateSettings;
 	api.AddDownload = AddDownload;
 	api.StartDownload = StartDownload;
-	api.IsDownloaded = IsDownloaded;
+	api.GetDownloadInfo = GetDownloadInfo;
+	api.on = (name, callback) => {
+		return events.addListener(name, callback);
+	};
 
 	LoadOptions();
+	StartDownload();
 
 	return api;
 };

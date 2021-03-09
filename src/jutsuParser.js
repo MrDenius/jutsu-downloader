@@ -40,47 +40,11 @@ module.exports = () => {
 							season: episode[1],
 							episode: episode[2],
 							getUrl: () => {
-								return new Promise((resolve, reject) => {
-									if (episode.url) {
-										resolve(episode.url);
-										return;
-									}
-									episode.url = {};
-									axios
-										.get(`https://jut.su${el.href}`)
-										.then((res) => {
-											const docEpisode = new JSDOM(
-												res.data
-											).window.document;
-											const datasets = docEpisode.querySelector(
-												"span#wap_player_1"
-											).dataset;
-											const qualities = [
-												160,
-												240,
-												360,
-												480,
-												720,
-												1080,
-												1440,
-												2480,
-											];
-
-											qualities.forEach((quality) => {
-												if (
-													datasets[
-														`player-${quality}`
-													]
-												)
-													episode.url[`${quality}`] =
-														datasets[
-															`player-${quality}`
-														];
-											});
-											resolve(episode.url);
-											return;
-										});
-								});
+								return GetUrl(
+									episode[0],
+									episode[1],
+									episode[2]
+								);
 							},
 						};
 					});
@@ -90,7 +54,37 @@ module.exports = () => {
 		});
 	};
 
+	const GetUrl = (name, season, episode) => {
+		return new Promise((resolve, reject) => {
+			if (GetUrl.url && Object.entries(GetUrl.url).length != 0) {
+				resolve(GetUrl.url);
+				return;
+			}
+
+			let href = `https://jut.su/${name}`;
+			if (season) href += `/season-${season}`;
+			if (episode) href += `/episode-${episode}.html`;
+
+			GetUrl.url = {};
+			axios.get(href).then((res) => {
+				const docEpisode = new JSDOM(res.data).window.document;
+				const datasets = docEpisode.querySelector("span#wap_player_1")
+					.dataset;
+				const qualities = [160, 240, 360, 480, 720, 1080, 1440, 2480];
+
+				qualities.forEach((quality) => {
+					if (datasets[`player-${quality}`])
+						GetUrl.url[`${quality}`] =
+							datasets[`player-${quality}`];
+				});
+				resolve(GetUrl.url);
+				return;
+			});
+		});
+	};
+
 	api.Parse = parse;
+	api.GetUrl = GetUrl;
 
 	return api;
 };

@@ -24,22 +24,42 @@ module.exports = () => {
 		Version: "0.1",
 	};
 
-	const GetSceneConfig = () => Scenes[globalConfig.Scene].config;
+	const Debug = {
+		enable: true,
+		reDrawCount: 0,
+		Draw: () => {
+			term(
+				chalk.bgHex("#A6A600").hex("#B200B2")(
+					`DEBUG: ReDrawCount: ${Debug.reDrawCount++}\n`
+				)
+			);
+		},
+	};
+
+	let sceneConfig;
 
 	const DrawScene = () => {
 		term.clear();
+
+		Debug.enable ? Debug.Draw() : undefined;
 
 		Scenes[globalConfig.Scene].Draw();
 	};
 
 	const ChangeScene = (sceneName) => {
+		if (Scenes[globalConfig.Scene] && Scenes[globalConfig.Scene].Disponse)
+			Scenes[globalConfig.Scene].Disponse();
+
 		globalConfig.Scene = sceneName;
+		sceneConfig = Scenes[globalConfig.Scene].config;
+
 		DrawScene();
 	};
 
 	const StartDrawLoop = () => {
 		console.log("Loading scenes...");
 		InitScenes();
+		term.hideCursor();
 		ChangeScene("Logo");
 		setTimeout(() => {
 			ChangeScene("ChangeMode");
@@ -104,18 +124,15 @@ module.exports = () => {
 									episodes.push(episode);
 							});
 
-							episodes.GetSettings = async (quality) => {
+							episodes.GetSettings = (quality) => {
 								const dowSettings = [];
 								log(quality);
 
 								for (const i in episodes) {
-									if (typeof episodes[i] === typeof {})
-										dowSettings.push([
-											episodes[i],
-											(await episodes[i].getUrl())[
-												quality
-											],
-										]);
+									if (typeof episodes[i] === typeof {}) {
+										episodes[i].quality = quality;
+										dowSettings.push(episodes[i]);
+									}
 								}
 
 								return dowSettings;
@@ -146,12 +163,32 @@ module.exports = () => {
 		};
 		config.StartDownload = (dowSettings) => {
 			downloadManager.AddDownload(dowSettings);
-			downloadManager.StartDownload();
 			ChangeScene("DownloadList");
 		};
 
 		//DownloadList
 		ChangeSceneConfig("DownloadList");
+		downloadManager
+			.on("progress", (episode, progress, speed) => {
+				if (config.onProgress)
+					config.onProgress(episode, progress, speed);
+			})
+			.on("queue-update", () => {
+				DrawScene();
+			});
+		config.title = {
+			get: () => config.title.value,
+			set: (value) => {
+				if (value != config.title.value) {
+					config.title.value = value;
+					DrawScene();
+				}
+			},
+			value: "Loading...",
+		};
+
+		console.log(chalk.green("Scenes config loaded!"));
+		log("Scenes config loaded!");
 	};
 
 	process.stdin.on("keypress", (str, key) => {
@@ -162,21 +199,16 @@ module.exports = () => {
 	const Scenes = {
 		Logo: {
 			Draw: () => {
-				term(`${chalk.cyan(GetSceneConfig().Name)}\n`);
-				term(`version ${chalk.gray(GetSceneConfig().Version)}\n`);
+				term(`${chalk.cyan(sceneConfig.Name)}\n`);
+				term(`version ${chalk.gray(sceneConfig.Version)}\n`);
 			},
 		},
 		ChangeMode: {
 			Draw: () => {
 				term("Choose a mode.");
-				term.singleColumnMenu(
-					GetSceneConfig().mods,
-					(error, response) => {
-						GetSceneConfig().mods.callbacks[
-							response.selectedIndex
-						]();
-					}
-				);
+				term.singleColumnMenu(sceneConfig.mods, (error, response) => {
+					sceneConfig.mods.callbacks[response.selectedIndex]();
+				});
 			},
 		},
 		NewTask: {
@@ -184,94 +216,122 @@ module.exports = () => {
 				term("Enter url: ");
 				term.inputField((error, input) => {
 					input = "https://jut.su/grand-blue/";
-					GetSceneConfig()
-						.GetSEManager(input)
-						.then((Manager) => {
-							const DrawEpisodes = () => {
-								term.clear();
-								const whiteEp = Manager.GetEpisodes();
-								Manager.episodes.forEach((ep) => {
-									let color = chalk.red;
-									if (whiteEp.includes(ep))
-										color = chalk.green;
-									term(
-										color(
-											`${ep.name} ${ep.season}-${ep.episode}\n`
-										)
-									);
-								});
+					sceneConfig.GetSEManager(input).then((Manager) => {
+						const DrawEpisodes = () => {
+							term.clear();
+							const whiteEp = Manager.GetEpisodes();
+							Manager.episodes.forEach((ep) => {
+								let color = chalk.red;
+								if (whiteEp.includes(ep)) color = chalk.green;
 								term(
-									`\nВведите S-E для добавления/удаления в blacklist.\nНажмите ENTER чтобы продолжить.\n`
+									color(
+										`${ep.name} ${ep.season}-${ep.episode}\n`
+									)
 								);
-								term.inputField((error, input) => {
-									//Выбор качества
-									if (input === "") {
-										term.clear();
-										term("Loading qualities...");
-										Manager.GetEpisodes()[0]
-											.getUrl()
-											.then((qualities) => {
-												const qualityList = [];
-												Object.entries(
-													qualities
-												).forEach((entrie) => {
+							});
+							term(
+								`\nВведите S-E для добавления/удаления в blacklist.\nНажмите ENTER чтобы продолжить.\n`
+							);
+							term.inputField((error, input) => {
+								//Выбор качества
+								if (input === "") {
+									term.clear();
+									term("Loading qualities...");
+									Manager.GetEpisodes()[0]
+										.getUrl()
+										.then((qualities) => {
+											const qualityList = [];
+											Object.entries(qualities).forEach(
+												(entrie) => {
 													qualityList.push(
 														entrie[0] + "p"
 													);
-												});
+												}
+											);
 
-												term.clear();
-												term.singleColumnMenu(
-													qualityList,
-													(error, response) => {
-														Manager.GetEpisodes()
-															.GetSettings(
-																qualityList[
-																	response
-																		.selectedIndex
-																].replace(
-																	"p",
-																	""
-																)
-															)
-															.then(
-																(
-																	dowSettings
-																) => {
-																	term.clear();
-																	GetSceneConfig().StartDownload(
-																		dowSettings
-																	);
-																	return;
-																}
-															);
-														term.clear();
-														term("Loading...");
-													}
-												);
-											});
-									}
-									const s_e = input.split("-");
-									if (
-										s_e.length === 1 &&
-										!Number.isNaN(Number(s_e[0]))
-									) {
-										Manager.blackList.push(`1-${s_e[0]}`);
-									} else {
-										Manager.blackList.push(
-											`${s_e[0]}-${s_e[1]}`
-										);
-									}
-									if (input !== "") DrawEpisodes();
-								});
-							};
-							DrawEpisodes();
-						});
+											term.clear();
+											term.singleColumnMenu(
+												qualityList,
+												(error, response) => {
+													const dowSettings = Manager.GetEpisodes().GetSettings(
+														qualityList[
+															response
+																.selectedIndex
+														].replace("p", "")
+													);
+													term.clear();
+													sceneConfig.StartDownload(
+														dowSettings
+													);
+													term.clear();
+													term("Loading...");
+												}
+											);
+										});
+								}
+								const s_e = input.split("-");
+								if (
+									s_e.length === 1 &&
+									!Number.isNaN(Number(s_e[0]))
+								) {
+									Manager.blackList.push(`1-${s_e[0]}`);
+								} else {
+									Manager.blackList.push(
+										`${s_e[0]}-${s_e[1]}`
+									);
+								}
+								if (input !== "") DrawEpisodes();
+							});
+						};
+						DrawEpisodes();
+					});
 				});
 			},
 		},
 		DownloadList: {
-			Draw: () => {},
+			Draw: () => {
+				const dowInfo = downloadManager.GetDownloadInfo();
+				let i = 0;
+				dowInfo.queue.forEach((q) => {
+					term(`Queue #${i++}\n`);
+					q.episodes.forEach((episode) => {
+						const episodeName = `${episode.season}-${episode.episode} ${episode.name}`;
+
+						const GetColor = () => {};
+
+						term(`--${episodeName}\n`);
+					});
+				});
+				if (dowInfo.queue.length !== 0) {
+					const progressBar = term.progressBar({
+						width: undefined,
+						title: sceneConfig.title.value,
+						eta: true,
+						percent: true,
+						titleSize: sceneConfig.title.value.length + 2 || 7 + 10,
+						syncMode: true,
+					});
+					if (sceneConfig.pb) sceneConfig.pb.stop();
+					sceneConfig.pb = progressBar;
+
+					sceneConfig.onProgress = (episode, progress, speed) => {
+						const newScenTitle = `${episode.season}-${episode.episode} ${episode.name}`;
+
+						sceneConfig.title.set(newScenTitle);
+
+						progressBar.update({
+							progress: progress / 100,
+						});
+						// progressBar.update(progress / 100);
+					};
+				}
+			},
+			disponseList: [],
+			Disponse: () => {
+				Scenes.DownloadList.disponseList.forEach((obj) => {
+					obj.Disponse();
+				});
+			},
 		},
 	};
 

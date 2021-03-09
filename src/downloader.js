@@ -12,18 +12,14 @@ module.exports = () => {
 
 		let compl = 0;
 		if (fs.existsSync(path)) {
-			//const chunksCompl = Math.floor(fs.statSync(path).size / 16384);
-			//compl = chunksCompl * 16384;
-			// cli.debug(
-			// 	`File exists. Chunks compl: ${chunksCompl}. Compl: ${compl}`
-			// );
 			compl = fs.statSync(path).size;
 		}
 
 		const downloadInfo = {
+			isStarted: false,
+			isEnded: false,
 			on: (name, callback) => {
 				events.addListener(name, callback);
-				cli.debug(`Event added: ${name}`);
 			},
 		};
 
@@ -32,71 +28,91 @@ module.exports = () => {
 			start: compl == 0 ? 0 : compl + 1,
 		});
 		cli.debug("File: " + path);
-		axios({
-			method: "GET",
-			url: url,
-			responseType: "stream",
-			headers: { Range: `bytes=${compl}-` },
-		}).then((res) => {
-			cli.debug(
-				`Download setting: Range=${compl}-${
-					parseInt(res.headers["content-length"], 10) + compl
-				}`
-			);
 
-			const length = parseInt(res.headers["content-length"], 10) + compl;
+		const StartDownload = () => {
+			downloadInfo.isStarted = true;
+			axios({
+				method: "GET",
+				url: url,
+				responseType: "stream",
+				headers: { Range: `bytes=${compl}-` },
+			})
+				.then((res) => {
+					cli.debug(
+						`Download setting: Range=${compl}-${
+							parseInt(res.headers["content-length"], 10) + compl
+						}`
+					);
 
-			const GetSpeed = () => {
-				let speed;
+					const length =
+						parseInt(res.headers["content-length"], 10) + compl;
 
-				if (!GetSpeed._lastCheck) {
-					GetSpeed._lastCheck = Date.now();
-					GetSpeed._lastCompl = compl;
-				}
+					const GetSpeed = () => {
+						let speed;
 
-				if (Date.now() - GetSpeed._lastCheck >= 2500) {
-					speed =
-						filesize(
-							Math.round(
-								(compl - GetSpeed._lastCompl) /
-									((Date.now() - GetSpeed._lastCheck) / 1000)
-							)
-						) + "/SEC";
+						if (!GetSpeed._lastCheck) {
+							GetSpeed._lastCheck = Date.now();
+							GetSpeed._lastCompl = compl;
+						}
 
-					GetSpeed._lastSpeed = speed;
-					GetSpeed._lastCheck = Date.now();
-					GetSpeed._lastCompl = compl;
-				}
+						if (Date.now() - GetSpeed._lastCheck >= 2500) {
+							speed =
+								filesize(
+									Math.round(
+										(compl - GetSpeed._lastCompl) /
+											((Date.now() -
+												GetSpeed._lastCheck) /
+												1000)
+									)
+								) + "/SEC";
 
-				return speed || GetSpeed._lastSpeed || "";
-			};
+							GetSpeed._lastSpeed = speed;
+							GetSpeed._lastCheck = Date.now();
+							GetSpeed._lastCompl = compl;
+						}
 
-			const Progress = (pr) => {
-				if (this._progress != pr) {
-					events.emit("progress", pr, GetSpeed());
-					this._progress = pr;
-					this._compl = compl;
-				}
-			};
+						return speed || GetSpeed._lastSpeed || "";
+					};
 
-			res.data.on("data", (chunk) => {
-				file.write(chunk);
-				compl += chunk.length;
-				Progress(((100.0 * compl) / length).toFixed(2));
-			});
+					const Progress = (pr) => {
+						if (this._progress != pr) {
+							events.emit("progress", pr, GetSpeed());
+							this._progress = pr;
+							this._compl = compl;
+						}
+					};
 
-			res.data.on("end", () => {
-				file.close();
-				events.emit("end");
-			});
+					res.data.on("data", (chunk) => {
+						file.write(chunk);
+						compl += chunk.length;
+						Progress(((100.0 * compl) / length).toFixed(2));
+					});
 
-			res.data.on("error", (err) => {
-				console.error(err);
-				events.emit("end", err);
-			});
+					res.data.on("end", () => {
+						file.close();
+						downloadInfo.isEnded = true;
+						events.emit("end");
+					});
 
-			cli.ok("Download started!");
-		});
+					res.data.on("error", (err) => {
+						console.error(err);
+						downloadInfo.isEnded = true;
+						events.emit("end", err);
+					});
+
+					cli.ok("Download started!");
+				})
+				.catch((err) => {
+					if (err.response.status === 416) {
+						file.close();
+						downloadInfo.isEnded = true;
+						events.emit("end");
+					} else {
+						console.error(err);
+					}
+				});
+		};
+		downloadInfo.StartDownload = StartDownload;
 
 		return downloadInfo;
 	};
